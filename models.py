@@ -738,6 +738,7 @@ class SynthesizerTrn(nn.Module):
     g = self.enc_spk.embed_utterance(mel.transpose(1,2))
     g = g.unsqueeze(-1)
 
+    # print("c_length: ", c_lengths)
     z_p, m_p, logs_p, c_mask = self.enc_p(c, c_lengths)
     z = self.flow(z_p, c_mask, g=g, reverse=True)
     o,o_mb = self.dec(z * c_mask, g=g)

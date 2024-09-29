@@ -5,6 +5,7 @@ import librosa
 import time
 from scipy.io.wavfile import write
 from tqdm import tqdm
+import numpy as np
 
 import utils
 from models import SynthesizerTrn
@@ -73,20 +74,39 @@ if __name__ == "__main__":
             wav_src, _ = librosa.load(src, sr=hps.data.sampling_rate)
             wav_src = torch.from_numpy(wav_src).unsqueeze(0).unsqueeze(0).cuda()
             print(wav_src.size())
+            
+            WINDOW_LEN=1024
+
             #long running
             #do something other
+            audio = np.array([])
+            for i in range(wav_src.size(2)//WINDOW_LEN):
+                c = hubert_soft.units(wav_src[:,:,i*WINDOW_LEN:(i+1)*WINDOW_LEN])
+                c=c.transpose(2,1)
+                new_audio = net_g.infer(c, mel=mel_tgt)
+                audio = np.concatenate((audio, new_audio[0][0].data.cpu().numpy()), 0)
+            print(audio.shape)
+            if args.use_timestamp:
+                timestamp = time.strftime("%m-%d_%H-%M", time.localtime())
+                write(os.path.join(args.outdir, "{}.wav".format(timestamp+"_"+title)), hps.data.sampling_rate, audio)
+            else:
+                write(os.path.join(args.outdir, f"partial{title}.wav"), hps.data.sampling_rate, audio)
+            
+
             c = hubert_soft.units(wav_src)
 
-            
-            
+            # print(c.shape)
             c=c.transpose(2,1)
-            #print(c.size())
+            
             audio = net_g.infer(c, mel=mel_tgt)
          
             audio = audio[0][0].data.cpu().float().numpy()
+
+            print(audio.shape)
             if args.use_timestamp:
                 timestamp = time.strftime("%m-%d_%H-%M", time.localtime())
                 write(os.path.join(args.outdir, "{}.wav".format(timestamp+"_"+title)), hps.data.sampling_rate, audio)
             else:
                 write(os.path.join(args.outdir, f"{title}.wav"), hps.data.sampling_rate, audio)
             
+            # jitted = torch.jit.trace(net_g, c, torch.zeros(1), mel_tgt)

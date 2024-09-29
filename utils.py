@@ -72,6 +72,7 @@ def latest_checkpoint_path(dir_path, regex="G_*.pth"):
   f_list.sort(key=lambda f: int("".join(filter(str.isdigit, f))))
   x = f_list[-1]
   print(x)
+  print("latest checkpoint", x)
   return x
 
 

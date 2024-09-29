@@ -2,7 +2,9 @@ import copy
 import math
 import numpy as np
 import scipy
+from typing import Optional
 import torch
+from torch import Tensor
 from torch import nn
 from torch.nn import functional as F
 
@@ -121,7 +123,7 @@ class WN(torch.nn.Module):
 
     self.in_layers = torch.nn.ModuleList()
     self.res_skip_layers = torch.nn.ModuleList()
-    self.drop = nn.Dropout(p_dropout)
+    self.drop = nn.Dropout(float(p_dropout))
 
     if gin_channels != 0:
       cond_layer = torch.nn.Conv1d(gin_channels, 2*hidden_channels*n_layers, 1)
@@ -145,7 +147,7 @@ class WN(torch.nn.Module):
       res_skip_layer = torch.nn.utils.weight_norm(res_skip_layer, name='weight')
       self.res_skip_layers.append(res_skip_layer)
 
-  def forward(self, x, x_mask, g=None, **kwargs):
+  def forward(self, x, x_mask, g=None):
     output = torch.zeros_like(x)
     n_channels_tensor = torch.IntTensor([self.hidden_channels])
 
@@ -207,7 +209,9 @@ class ResBlock1(torch.nn.Module):
         ])
         self.convs2.apply(init_weights)
 
-    def forward(self, x, x_mask=None):
+    def forward(self, x, x_mask: Optional[Tensor] = None):
+        LRELU_SLOPE = 0.1
+
         for c1, c2 in zip(self.convs1, self.convs2):
             xt = F.leaky_relu(x, LRELU_SLOPE)
             if x_mask is not None:
@@ -257,9 +261,27 @@ class ResBlock2(torch.nn.Module):
         for l in self.convs:
             remove_weight_norm(l)
 
+class ResBlockGroup(nn.Module):
+  def __init__(self, blocks: nn.ModuleList):
+    super().__init__()
+    self.blocks = blocks
+
+  def forward(self, x):
+    xs = None
+    for resblock in self.blocks:
+      if xs is None:
+        xs = resblock(x, None)
+      else:
+        xs += resblock(x, None)
+    return xs / len(self.blocks)
+  
+  def remove_weight_norm(self):
+    for resblock in self.blocks:
+      resblock.remove_weight_norm()
+
 
 class Log(nn.Module):
-  def forward(self, x, x_mask, reverse=False, **kwargs):
+  def forward(self, x, x_mask, reverse=False):
     if not reverse:
       y = torch.log(torch.clamp_min(x, 1e-5)) * x_mask
       logdet = torch.sum(-y, [1, 2])
@@ -270,7 +292,7 @@ class Log(nn.Module):
     
 
 class Flip(nn.Module):
-  def forward(self, x, *args, reverse=False, **kwargs):
+  def forward(self, x, *args, reverse=False, g: Optional[Tensor] = None):
     x = torch.flip(x, [1])
     if not reverse:
       logdet = torch.zeros(x.size(0)).to(dtype=x.dtype, device=x.device)
@@ -286,7 +308,7 @@ class ElementwiseAffine(nn.Module):
     self.m = nn.Parameter(torch.zeros(channels,1))
     self.logs = nn.Parameter(torch.zeros(channels,1))
 
-  def forward(self, x, x_mask, reverse=False, **kwargs):
+  def forward(self, x, x_mask, reverse=False):
     if not reverse:
       y = self.m + torch.exp(self.logs) * x
       y = y * x_mask
